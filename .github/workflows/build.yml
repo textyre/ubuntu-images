@@ -15,8 +15,8 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/ubuntu-molecule
-  BOX_NAME: ubuntu-molecule
+  IMAGE_NAME: ${{ github.repository_owner }}/ubuntu-noble
+  BOX_NAME: ubuntu-noble
 
 jobs:
   # ─────────────────────────────────────────────────────────────────────────────
@@ -63,7 +63,7 @@ jobs:
             bash -c "$(cat contracts/docker.sh)"
 
   # ─────────────────────────────────────────────────────────────────────────────
-  # Vagrant box: Packer + QEMU/KVM → ubuntu-molecule.box → GitHub Releases
+  # Vagrant box: Packer + QEMU/KVM → ubuntu-noble.box → GitHub Releases
   # ─────────────────────────────────────────────────────────────────────────────
   build-vagrant:
     name: Build Vagrant box
@@ -112,22 +112,34 @@ jobs:
 
       - name: Verify Vagrant box contract
         run: |
-          BOX_PATH=$(find "$GITHUB_WORKSPACE" -name "*.box" | head -1)
-          echo "=== Vagrant Box Contract Verification ==="
-          echo "Box file: $BOX_PATH"
-          test -f "$BOX_PATH" || { echo "ERROR: box file not found"; exit 1; }
-          echo -n "Size: " && du -sh "$BOX_PATH"
-          echo -n "Archive valid: " && tar tzf "$BOX_PATH" > /tmp/box-contents.txt && echo "OK"
-          cat /tmp/box-contents.txt
-          echo -n "metadata.json present: " && grep -q metadata.json /tmp/box-contents.txt && echo "OK"
-          echo -n "disk image present: "   && grep -qE "(box_0\.img|box\.img|disk\.img)" /tmp/box-contents.txt && echo "OK"
-          echo -n "provider=libvirt: " && tar xzf "$BOX_PATH" -O metadata.json | python3 -c "
-          import sys, json
-          m = json.load(sys.stdin)
-          assert m['provider'] == 'libvirt', f'Wrong provider: {m[\"provider\"]}'
-          print('OK')
-          "
-          echo "=== Contract: PASS ==="
+          # Install HashiCorp repo (vagrant not in ubuntu-24.04 standard repos)
+          wget -O- https://apt.releases.hashicorp.com/gpg | \
+            sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] \
+            https://apt.releases.hashicorp.com $(lsb_release -cs) main" | \
+            sudo tee /etc/apt/sources.list.d/hashicorp.list
+          sudo apt-get update -qq
+          sudo apt-get install -y vagrant ruby-dev build-essential pkg-config libvirt-dev
+          sudo chmod a+rw /var/run/libvirt/libvirt-sock
+          vagrant plugin install vagrant-libvirt
+
+          BOX_FILE="ubuntu-noble.box"
+          vagrant box add --name verify-box "$BOX_FILE"
+
+          mkdir /tmp/verify-vm && cd /tmp/verify-vm
+          cat > Vagrantfile <<'VAGRANTEOF'
+Vagrant.configure("2") do |config|
+  config.vm.box = "verify-box"
+  config.vm.provider :libvirt do |l|
+    l.memory = 1024
+    l.cpus   = 1
+  end
+end
+VAGRANTEOF
+
+          vagrant up --provider libvirt --no-provision
+          vagrant ssh -c "bash -s" < "$GITHUB_WORKSPACE/contracts/vagrant.sh"
+          vagrant destroy -f
 
       - name: Compute version (YYYYMMDD)
         id: version
@@ -137,10 +149,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          BOX_FILE="ubuntu-molecule.box"
+          BOX_FILE="ubuntu-noble.box"
           VERSION="${{ steps.version.outputs.version }}"
-          VERSIONED_ASSET="ubuntu-molecule-${VERSION}.box"
-          LATEST_ASSET="ubuntu-molecule-latest.box"
+          VERSIONED_ASSET="ubuntu-noble-${VERSION}.box"
+          LATEST_ASSET="ubuntu-noble-latest.box"
 
           cp "$BOX_FILE" "$VERSIONED_ASSET"
           cp "$BOX_FILE" "$LATEST_ASSET"
