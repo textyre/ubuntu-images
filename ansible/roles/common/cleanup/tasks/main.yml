@@ -27,6 +27,35 @@
   ansible.builtin.shell: find /var/log -type f -exec truncate -s 0 {} \;
   changed_when: true
 
+- name: Disable cloud-init network configuration (Ubuntu)
+  ansible.builtin.copy:
+    dest: /etc/cloud/cloud.cfg.d/99-disable-network.cfg
+    content: "network: {config: disabled}\n"
+    mode: '0644'
+  when: ansible_os_family == 'Debian'
+
+- name: Write MAC-agnostic netplan config for vagrant (Ubuntu)
+  ansible.builtin.copy:
+    dest: /etc/netplan/99-vagrant.yaml
+    content: |
+      network:
+        version: 2
+        ethernets:
+          default:
+            match:
+              name: "en*"
+            dhcp4: true
+    owner: root
+    group: root
+    mode: '0600'
+  when: ansible_os_family == 'Debian'
+
+- name: Remove cloud-init generated netplan config (Ubuntu)
+  ansible.builtin.file:
+    path: /etc/netplan/50-cloud-init.yaml
+    state: absent
+  when: ansible_os_family == 'Debian'
+
 - name: Clean cloud-init state
   ansible.builtin.command: cloud-init clean --logs
   failed_when: false
