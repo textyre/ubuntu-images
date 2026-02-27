@@ -73,7 +73,7 @@ build {
   }
 
   post-processor "vagrant" {
-    output            = "output-${var.box_name}/${var.box_name}.box"
+    output            = "${var.box_name}.box"
     provider_override = "libvirt"
   }
 }
