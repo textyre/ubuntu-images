@@ -127,15 +127,7 @@ jobs:
           vagrant box add --name verify-box "$BOX_FILE"
 
           mkdir /tmp/verify-vm && cd /tmp/verify-vm
-          cat > Vagrantfile <<'VAGRANTEOF'
-Vagrant.configure("2") do |config|
-  config.vm.box = "verify-box"
-  config.vm.provider :libvirt do |l|
-    l.memory = 1024
-    l.cpus   = 1
-  end
-end
-VAGRANTEOF
+          cp "$GITHUB_WORKSPACE/contracts/verify-vagrantfile" Vagrantfile
 
           vagrant up --provider libvirt --no-provision
           vagrant ssh -c "bash -s" < "$GITHUB_WORKSPACE/contracts/vagrant.sh"

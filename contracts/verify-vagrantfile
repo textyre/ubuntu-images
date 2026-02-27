@@ -1,0 +1,7 @@
+Vagrant.configure("2") do |config|
+  config.vm.box = "verify-box"
+  config.vm.provider :libvirt do |l|
+    l.memory = 1024
+    l.cpus   = 1
+  end
+end
