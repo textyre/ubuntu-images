@@ -1,6 +1,7 @@
 ---
 # Full system upgrade + base packages.
 # Supports Arch (pacman) and Ubuntu (apt) via ansible_os_family.
+# qemu-guest-agent intentionally excluded: the vm role installs and tests it.
 
 - name: Full system upgrade (Arch)
   community.general.pacman:
@@ -23,7 +24,6 @@
       - ca-certificates
       - openssh
       - sudo
-      - qemu-guest-agent
     state: present
   when: ansible_os_family == 'Archlinux'
 
@@ -36,7 +36,6 @@
       - ca-certificates
       - openssh-server
       - sudo
-      - qemu-guest-agent
     state: present
   when: ansible_os_family == 'Debian'
 
@@ -53,9 +52,3 @@
     enabled: true
     state: started
   when: ansible_os_family == 'Debian'
-
-- name: Enable qemu-guest-agent (best-effort — not available in all environments)
-  ansible.builtin.systemd:
-    name: qemu-guest-agent
-    enabled: true
-  failed_when: false
