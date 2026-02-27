@@ -1,0 +1,33 @@
+---
+# Remove build artifacts and reset machine state.
+# Run last — after all other provisioning is done.
+
+- name: Clean pacman package cache (Arch)
+  ansible.builtin.command: pacman -Scc --noconfirm
+  when: ansible_os_family == 'Archlinux'
+  changed_when: true
+
+- name: Clean apt cache (Ubuntu)
+  ansible.builtin.apt:
+    autoclean: true
+    autoremove: true
+  when: ansible_os_family == 'Debian'
+
+- name: Reset machine-id (will be regenerated on first boot of each cloned VM)
+  ansible.builtin.command: truncate -s 0 /etc/machine-id
+  changed_when: true
+
+- name: Remove /var/lib/dbus/machine-id (symlink or copy)
+  ansible.builtin.file:
+    path: /var/lib/dbus/machine-id
+    state: absent
+  failed_when: false
+
+- name: Truncate all system logs
+  ansible.builtin.shell: find /var/log -type f -exec truncate -s 0 {} \;
+  changed_when: true
+
+- name: Clean cloud-init state
+  ansible.builtin.command: cloud-init clean --logs
+  failed_when: false
+  changed_when: true

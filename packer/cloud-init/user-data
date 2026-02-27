@@ -1,0 +1,26 @@
+#cloud-config
+# Ubuntu 24.04 cloud-init user-data.
+# Ubuntu cloud images use netplan with predictable interface names — no MAC hack needed.
+
+users:
+  - default
+  - name: vagrant
+    shell: /bin/bash
+    lock_passwd: false
+    sudo: ALL=(ALL) NOPASSWD:ALL
+
+ssh_pwauth: true
+chpasswd:
+  expire: false
+  list: |
+    ubuntu:ubuntu
+    vagrant:vagrant
+
+write_files:
+  - path: /etc/sudoers.d/90-vagrant
+    permissions: '0440'
+    content: |
+      vagrant ALL=(ALL) NOPASSWD:ALL
+
+runcmd:
+  - systemctl enable ssh

@@ -1,0 +1,61 @@
+---
+# Full system upgrade + base packages.
+# Supports Arch (pacman) and Ubuntu (apt) via ansible_os_family.
+
+- name: Full system upgrade (Arch)
+  community.general.pacman:
+    update_cache: true
+    upgrade: true
+  when: ansible_os_family == 'Archlinux'
+
+- name: Full system upgrade (Ubuntu)
+  ansible.builtin.apt:
+    update_cache: true
+    upgrade: dist
+  when: ansible_os_family == 'Debian'
+
+- name: Install base packages (Arch)
+  community.general.pacman:
+    name:
+      - rsync
+      - tar
+      - gzip
+      - ca-certificates
+      - openssh
+      - sudo
+      - qemu-guest-agent
+    state: present
+  when: ansible_os_family == 'Archlinux'
+
+- name: Install base packages (Ubuntu)
+  ansible.builtin.apt:
+    name:
+      - rsync
+      - tar
+      - gzip
+      - ca-certificates
+      - openssh-server
+      - sudo
+      - qemu-guest-agent
+    state: present
+  when: ansible_os_family == 'Debian'
+
+- name: Enable SSH (Arch)
+  ansible.builtin.systemd:
+    name: sshd
+    enabled: true
+    state: started
+  when: ansible_os_family == 'Archlinux'
+
+- name: Enable SSH (Ubuntu)
+  ansible.builtin.systemd:
+    name: ssh
+    enabled: true
+    state: started
+  when: ansible_os_family == 'Debian'
+
+- name: Enable qemu-guest-agent (best-effort — not available in all environments)
+  ansible.builtin.systemd:
+    name: qemu-guest-agent
+    enabled: true
+  failed_when: false

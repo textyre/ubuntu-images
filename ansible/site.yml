@@ -1,0 +1,11 @@
+---
+# Entry playbook for Packer Ansible provisioner.
+# Ubuntu needs only the common roles — no distro-specific extras.
+- name: Provision Ubuntu image
+  hosts: all
+  become: true
+  gather_facts: true
+  roles:
+    - common/base
+    - common/vagrant_user
+    - common/cleanup
