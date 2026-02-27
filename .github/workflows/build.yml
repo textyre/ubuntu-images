@@ -137,7 +137,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          BOX_FILE="output-ubuntu-molecule/ubuntu-molecule.box"
+          BOX_FILE="ubuntu-molecule.box"
           VERSION="${{ steps.version.outputs.version }}"
           VERSIONED_ASSET="ubuntu-molecule-${VERSION}.box"
           LATEST_ASSET="ubuntu-molecule-latest.box"
