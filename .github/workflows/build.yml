@@ -1,7 +1,14 @@
 ---
-name: "Build Ubuntu Images"
+name: Build ubuntu-base
 
 on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'docker/**'
+      - 'packer/**'
+      - 'contracts/**'
+      - '.github/workflows/build.yml'
   schedule:
     - cron: '0 3 * * 1'   # Weekly Monday 03:00 UTC (1 hour after arch-images)
   workflow_dispatch:
@@ -15,22 +22,43 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/ubuntu-noble
-  BOX_NAME: ubuntu-noble
+  IMAGE_NAME: ${{ github.repository_owner }}/ubuntu-base
+  BOX_NAME: ubuntu-base
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      docker: ${{ steps.filter.outputs.docker }}
+      vagrant: ${{ steps.filter.outputs.vagrant }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            docker:
+              - 'docker/**'
+              - 'contracts/docker.sh'
+            vagrant:
+              - 'packer/**'
+              - 'contracts/vagrant.sh'
+
   # ─────────────────────────────────────────────────────────────────────────────
-  # Docker image: ubuntu:24.04 + systemd
+  # Docker image: ubuntu:24.04 + systemd + Ansible requirements
   # ─────────────────────────────────────────────────────────────────────────────
   build-docker:
-    name: Build Docker image
-    runs-on: ubuntu-latest
-    if: >
+    name: Build and push ubuntu-base Docker image
+    needs: changes
+    if: |
       github.event_name == 'schedule' ||
-      inputs.artifact == 'all' ||
-      inputs.artifact == 'docker'
+      (github.event_name == 'workflow_dispatch' && (inputs.artifact == 'all' || inputs.artifact == 'docker')) ||
+      needs.changes.outputs.docker == 'true'
+    runs-on: ubuntu-latest
     permissions:
       packages: write
+      id-token: write      # required for keyless Cosign signing
+      attestations: write  # required for SLSA provenance
 
     steps:
       - uses: actions/checkout@v4
@@ -45,33 +73,105 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and push
+      - name: Extract metadata (tags + labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest
+            type=raw,value={{date 'YYYY.MM.DD'}}
+            type=raw,value=24.04
+            type=sha,prefix=sha-,format=short
+          labels: |
+            org.opencontainers.image.vendor=textyre
+            org.opencontainers.image.description=Ubuntu 24.04 base image with systemd for Ansible/Molecule testing
+
+      - name: Build image (local, for scanning)
+        uses: docker/build-push-action@v6
+        with:
+          context: docker
+          load: true
+          tags: ubuntu-base:scan
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Scan with Trivy (gate on CRITICAL/HIGH)
+        uses: aquasecurity/trivy-action@v0.34.1
+        with:
+          image-ref: ubuntu-base:scan
+          severity: CRITICAL,HIGH
+          exit-code: '1'
+          ignore-unfixed: true
+
+      - name: Verify Docker image contract
+        run: docker run --rm ubuntu-base:scan bash contracts/docker.sh
+
+      - name: Build and push (with SLSA L1 provenance + SBOM)
+        id: push
         uses: docker/build-push-action@v6
         with:
           context: docker
           push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.run_number }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
 
-      - name: Verify Docker contract
+      - name: Generate CycloneDX SBOM
+        uses: aquasecurity/trivy-action@v0.34.1
+        with:
+          image-ref: ubuntu-base:scan
+          format: cyclonedx
+          output: sbom.cyclonedx.json
+
+      - name: Upload SBOM as build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-ubuntu-base-docker
+          path: sbom.cyclonedx.json
+
+  attest:
+    name: Sign image with Cosign (keyless)
+    needs: build-docker
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      id-token: write
+
+    steps:
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Sign image by digest
+        # Sign by digest — covers all tags. COSIGN_EXPERIMENTAL not needed in cosign v2+.
         run: |
-          docker run --rm \
+          IMAGE_DIGEST=$(docker buildx imagetools inspect \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
-            bash -c "$(cat contracts/docker.sh)"
+            --format '{{.Manifest.Digest}}')
+          cosign sign --yes \
+            "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${IMAGE_DIGEST}"
 
   # ─────────────────────────────────────────────────────────────────────────────
-  # Vagrant box: Packer + QEMU/KVM → ubuntu-noble.box → GitHub Releases
+  # Vagrant box: Packer + QEMU/KVM → ubuntu-base.box → GitHub Releases
   # ─────────────────────────────────────────────────────────────────────────────
   build-vagrant:
-    name: Build Vagrant box
-    runs-on: ubuntu-latest
-    if: >
+    name: Build ubuntu-base Vagrant box
+    needs: changes
+    if: |
       github.event_name == 'schedule' ||
-      inputs.artifact == 'all' ||
-      inputs.artifact == 'vagrant'
+      (github.event_name == 'workflow_dispatch' && (inputs.artifact == 'all' || inputs.artifact == 'vagrant')) ||
+      needs.changes.outputs.vagrant == 'true'
+    runs-on: ubuntu-latest
     permissions:
       contents: write
 
@@ -90,17 +190,15 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y qemu-system-x86 qemu-utils libvirt-daemon-system xorriso
 
-      - name: Install Packer
-        uses: hashicorp/setup-packer@main
-        with:
-          version: latest
+      - name: Set up Packer
+        uses: hashicorp/setup-packer@1aa358be5cf73883762b302a3a03abd66e75b232  # v3.1.0
 
       - name: Install Ansible + community.general
         run: |
           pip install ansible-core
           ansible-galaxy collection install community.general
 
-      - name: Packer init (download plugins)
+      - name: Packer init
         run: packer init packer/ubuntu.pkr.hcl
 
       - name: Build Vagrant box
@@ -110,7 +208,7 @@ jobs:
             packer/ubuntu.pkr.hcl
         timeout-minutes: 60
 
-      - name: Verify Vagrant box contract
+      - name: Verify Vagrant box contract (boot test)
         run: |
           # Install HashiCorp repo (vagrant not in ubuntu-24.04 standard repos)
           wget -O- https://apt.releases.hashicorp.com/gpg | \
@@ -123,7 +221,7 @@ jobs:
           sudo chmod a+rw /var/run/libvirt/libvirt-sock
           vagrant plugin install vagrant-libvirt
 
-          BOX_FILE="ubuntu-noble.box"
+          BOX_FILE="ubuntu-base.box"
           vagrant box add --name verify-box "$BOX_FILE"
 
           mkdir /tmp/verify-vm && cd /tmp/verify-vm
@@ -133,18 +231,18 @@ jobs:
           vagrant ssh -c "bash -s" < "$GITHUB_WORKSPACE/contracts/vagrant.sh"
           vagrant destroy -f
 
-      - name: Compute version (YYYYMMDD)
+      - name: Compute CalVer date
         id: version
-        run: echo "version=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+        run: echo "date=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
 
       - name: Publish to GitHub Releases
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          BOX_FILE="ubuntu-noble.box"
-          VERSION="${{ steps.version.outputs.version }}"
-          VERSIONED_ASSET="ubuntu-noble-${VERSION}.box"
-          LATEST_ASSET="ubuntu-noble-latest.box"
+          BOX_FILE="ubuntu-base.box"
+          VERSION="${{ steps.version.outputs.date }}"
+          VERSIONED_ASSET="ubuntu-base-${VERSION}.box"
+          LATEST_ASSET="ubuntu-base-latest.box"
 
           cp "$BOX_FILE" "$VERSIONED_ASSET"
           cp "$BOX_FILE" "$LATEST_ASSET"
@@ -152,7 +250,7 @@ jobs:
           gh release view boxes &>/dev/null || \
             gh release create boxes \
               --title "Vagrant Boxes (rolling)" \
-              --notes "Rolling release — always points to the latest built boxes."
+              --notes "Rolling release — always points to the latest built boxes. Use the \`*-latest.box\` asset in Vagrantfiles."
 
           gh release upload boxes "$VERSIONED_ASSET" --clobber
           gh release upload boxes "$LATEST_ASSET" --clobber
