@@ -59,6 +59,8 @@ jobs:
       packages: write
       id-token: write      # required for keyless Cosign signing
       attestations: write  # required for SLSA provenance
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
 
     steps:
       - uses: actions/checkout@v4
@@ -154,13 +156,10 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Sign image by digest
-        # Sign by digest — covers all tags. COSIGN_EXPERIMENTAL not needed in cosign v2+.
+        # Digest from build-docker job outputs — covers all tags. COSIGN_EXPERIMENTAL not needed in cosign v2+.
         run: |
-          IMAGE_DIGEST=$(docker buildx imagetools inspect \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
-            --format '{{.Manifest.Digest}}')
           cosign sign --yes \
-            "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${IMAGE_DIGEST}"
+            "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-docker.outputs.digest }}"
 
   # ─────────────────────────────────────────────────────────────────────────────
   # Vagrant box: Packer + QEMU/KVM → ubuntu-base.box → GitHub Releases
