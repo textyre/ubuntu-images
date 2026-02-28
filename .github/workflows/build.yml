@@ -238,18 +238,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          BOX_FILE="ubuntu-base.box"
           VERSION="${{ steps.version.outputs.date }}"
-          VERSIONED_ASSET="ubuntu-base-${VERSION}.box"
-          LATEST_ASSET="ubuntu-base-latest.box"
-
-          cp "$BOX_FILE" "$VERSIONED_ASSET"
-          cp "$BOX_FILE" "$LATEST_ASSET"
-
-          gh release view boxes &>/dev/null || \
-            gh release create boxes \
-              --title "Vagrant Boxes (rolling)" \
-              --notes "Rolling release — always points to the latest built boxes. Use the \`*-latest.box\` asset in Vagrantfiles."
-
-          gh release upload boxes "$VERSIONED_ASSET" --clobber
-          gh release upload boxes "$LATEST_ASSET" --clobber
+          gh release create "v${VERSION}" \
+            --title "ubuntu-base v${VERSION}" \
+            --notes "Vagrant box built from commit ${{ github.sha }}." \
+            ubuntu-base.box
