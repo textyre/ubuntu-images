@@ -97,7 +97,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Scan with Trivy (gate on CRITICAL/HIGH)
-        uses: aquasecurity/trivy-action@v0.34.1
+        uses: aquasecurity/trivy-action@0.34.1
         with:
           image-ref: ubuntu-base:scan
           severity: CRITICAL,HIGH
@@ -121,7 +121,7 @@ jobs:
           sbom: true
 
       - name: Generate CycloneDX SBOM
-        uses: aquasecurity/trivy-action@v0.34.1
+        uses: aquasecurity/trivy-action@0.34.1
         with:
           image-ref: ubuntu-base:scan
           format: cyclonedx
