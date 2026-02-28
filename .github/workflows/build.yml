@@ -106,7 +106,7 @@ jobs:
           vuln-type: os   # gate only on OS packages; gobinary CVEs awaiting upstream rebuild are captured in SBOM
 
       - name: Verify Docker image contract
-        run: docker run --rm ubuntu-base:scan bash contracts/docker.sh
+        run: docker run --rm -i ubuntu-base:scan bash -s < contracts/docker.sh
 
       - name: Build and push (with SLSA L1 provenance + SBOM)
         id: push
